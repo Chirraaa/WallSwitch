@@ -1,4 +1,5 @@
 # WallSwitch: Seamless Game-Wallpaper Engine Automation
+![{DB946817-9377-4326-93D0-1FBA65CDB901}](https://github.com/user-attachments/assets/ffc11b72-4587-4376-ab59-d583eb9f83a6)
 
 ## Description
 WallSwitch is an open-source Electron + Vite + React desktop application that automatically manages Wallpaper Engine during gaming sessions. Designed for gamers who want uninterrupted wallpaper experiences, it intelligently detects game launches and closures to optimize system resources.
