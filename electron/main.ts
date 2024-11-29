@@ -71,7 +71,7 @@ function createWindow() {
     {
       label: 'Quit',
       click: () => {
-        app.quit()
+        app.quit();
       }
     }
   ])
@@ -80,9 +80,15 @@ function createWindow() {
   tray.setContextMenu(contextMenu)
 
   win.on('close', (event) => {
-    event.preventDefault()
-    win?.hide()
+    if (win?.isVisible()) {
+      event.preventDefault()
+      win?.hide()
+    } else {
+      app.quit()
+    }
   })
+  
+
   tray.on('double-click', () => {
     if (win) {
       win.show()
@@ -250,6 +256,13 @@ ipcMain.handle('hide-window', () => {
     win.hide()
   }
 })
+
+ipcMain.handle('app-quit', () => {
+  if (win) {
+    win.destroy(); // Force close the window
+  }
+  app.quit();
+});
 
 ipcMain.handle('open-external-link', (_event, url) => {
   shell.openExternal(url);
