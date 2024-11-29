@@ -1,5 +1,3 @@
-Here's a comprehensive README.md for the WallSwitch project:
-
 # WallSwitch: Seamless Game-Wallpaper Engine Automation
 
 ## Description
