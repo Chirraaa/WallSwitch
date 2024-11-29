@@ -5,8 +5,17 @@
 import { app, BrowserWindow, ipcMain, dialog, Tray, Menu, shell } from 'electron'
 import { PowerShell } from 'node-powershell'
 import path from 'node:path'
+import AutoLaunch from 'auto-launch'
+import fs from 'fs'
+
 
 let currentPowerShellSession: PowerShell | null = null;
+
+const autoLauncher = new AutoLaunch({
+  name: 'WallSwitch',
+  path: app.getPath('exe'),
+  isHidden: true
+});
 
 // The built directory structure
 //
@@ -95,6 +104,23 @@ function createWindow() {
   if (!app.isPackaged) {
     win.webContents.openDevTools();
   }
+  // Check for auto-monitor on startup
+  const configPath = path.join(app.getPath('userData'), 'wallpaperEngineConfig.json');
+  try {
+    if (fs.existsSync(configPath)) {
+      const savedConfig = fs.readFileSync(configPath, 'utf-8');
+      const config = JSON.parse(savedConfig);
+
+      if (config.autoMonitor && config.wallpaperEnginePath && config.trackedGames.length > 0) {
+        win?.webContents.once('did-finish-load', () => {
+          win?.webContents.send('auto-start-monitoring', config);
+          win?.hide(); // Hide window after auto-start
+        });
+      }
+    }
+  } catch (error) {
+    console.error('Error reading config for auto-monitor:', error);
+  }
 }
 
 app.on('window-all-closed', () => {
@@ -122,6 +148,22 @@ app.on('before-quit', async () => {
   }
 });
 
+async function setAutoLaunch(enable: boolean): Promise<boolean> {
+  try {
+    if (enable) {
+      await autoLauncher.enable();
+      console.log('Auto launch enabled');
+      return true;
+    } else {
+      await autoLauncher.disable();
+      console.log('Auto launch disabled');
+      return false;
+    }
+  } catch (error) {
+    console.error('Error setting auto launch:', error);
+    return false;
+  }
+}
 
 ipcMain.handle('execute-powershell-script', async (_event: any, script: string) => {
   if (currentPowerShellSession) {
@@ -211,4 +253,33 @@ ipcMain.handle('hide-window', () => {
 
 ipcMain.handle('open-external-link', (_event, url) => {
   shell.openExternal(url);
+});
+
+ipcMain.handle('toggle-auto-launch', async (_event, enable: boolean) => {
+  return await setAutoLaunch(enable);
+});
+
+ipcMain.handle('save-config', (_event, config) => {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'wallpaperEngineConfig.json');
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    return true;
+  } catch (error) {
+    console.error('Error saving configuration:', error);
+    return false;
+  }
+});
+
+ipcMain.handle('load-config', () => {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'wallpaperEngineConfig.json');
+    if (fs.existsSync(configPath)) {
+      const savedConfig = fs.readFileSync(configPath, 'utf-8');
+      return JSON.parse(savedConfig);
+    }
+    return null;
+  } catch (error) {
+    console.error('Error loading configuration:', error);
+    return null;
+  }
 });

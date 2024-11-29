@@ -4,7 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Trash2, Github, Twitter } from 'lucide-react';
+import { Trash2, Github, Twitter, Settings } from 'lucide-react';
+import { Switch } from './components/ui/switch';
 
 interface GameConfig {
   wallpaperEnginePath: string;
@@ -13,6 +14,8 @@ interface GameConfig {
     name: string;
     icon: string | null;
   }[];
+  autoLaunch: boolean;
+  autoMonitor: boolean;
 }
 
 const App: React.FC = () => {
@@ -21,83 +24,70 @@ const App: React.FC = () => {
     try {
       return savedConfig ? JSON.parse(savedConfig) : {
         wallpaperEnginePath: '',
-        trackedGames: []
+        trackedGames: [],
+        autoLaunch: false,
+        autoMonitor: false
       };
     } catch (error) {
       console.error('Error parsing initial config:', error);
       return {
         wallpaperEnginePath: '',
-        trackedGames: []
+        trackedGames: [],
+        autoLaunch: false,
+        autoMonitor: false
       };
     }
   });
   const [isRunning, setIsRunning] = useState(false);
-  const [, setIsInitialized] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Comprehensive initialization effect
   useEffect(() => {
-    const initializeConfig = () => {
-      try {
-        const savedConfig = localStorage.getItem('wallpaperEngineConfig');
-        console.log('Initial config load:', savedConfig);
-
-        if (savedConfig) {
-          const parsedConfig = JSON.parse(savedConfig);
-          console.log('Parsed configuration:', parsedConfig);
-
-          setConfig({
-            wallpaperEnginePath: parsedConfig.wallpaperEnginePath || '',
-            trackedGames: parsedConfig.trackedGames || []
-          });
-        }
-
-        setIsInitialized(true);
-      } catch (error) {
-        console.error('Config initialization error:', error);
-        setIsInitialized(true);
-      }
-    };
-
-    initializeConfig();
-  }, []);
-
-
-  // Load configuration from local storage on component mount
-  useEffect(() => {
     try {
       const savedConfig = localStorage.getItem('wallpaperEngineConfig');
-      console.log('Raw saved configuration:', savedConfig);
-
       if (savedConfig) {
         const parsedConfig = JSON.parse(savedConfig);
-        console.log('Fully parsed configuration:', parsedConfig);
-        console.log('Tracked games count:', parsedConfig.trackedGames.length);
-        setConfig(parsedConfig);
-      } else {
-        console.log('No saved configuration found');
+        setConfig({
+          wallpaperEnginePath: parsedConfig.wallpaperEnginePath || '',
+          trackedGames: parsedConfig.trackedGames || [],
+          autoLaunch: parsedConfig.autoLaunch || false,
+          autoMonitor: parsedConfig.autoMonitor || false
+        });
       }
     } catch (error) {
       console.error('Error loading configuration:', error);
     }
   }, []);
 
+
+  // Load configuration from main process on component mount
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const savedConfig = await window.ipcRenderer.invoke('load-config');
+        if (savedConfig) {
+          setConfig(savedConfig);
+        }
+      } catch (error) {
+        console.error('Error loading configuration:', error);
+      }
+    };
+
+    loadConfig();
+  }, []);
+
   // Save configuration whenever it changes
   useEffect(() => {
-    console.log('Current configuration to save:', config);
-    console.log('Number of tracked games:', config.trackedGames.length);
-
-    try {
-      localStorage.setItem('wallpaperEngineConfig', JSON.stringify(config));
-      console.log('Configuration saved successfully');
-    } catch (error) {
-      console.error('Error saving configuration:', error);
-      if (error instanceof Error && error.name === 'QuotaExceededError') {
-        console.log('localStorage quota exceeded. Clearing previous data.');
-        localStorage.clear();
+    const saveConfig = async () => {
+      try {
+        await window.ipcRenderer.invoke('save-config', config);
+      } catch (error) {
+        console.error('Error saving configuration:', error);
       }
-    }
-  }, [config]);
+    };
 
+    saveConfig();
+  }, [config]);
   const handleSelectWallpaperEngine = async () => {
     try {
       const result = await window.ipcRenderer.invoke('select-file', {
@@ -192,7 +182,7 @@ const App: React.FC = () => {
         }
 
         setIsRunning(true);
-  
+
         const script = `
 # Wallpaper Engine Game Monitoring Script
 $gamesToMonitor = @{
@@ -257,8 +247,11 @@ function Monitor-GameStatus {
 
 Monitor-GameStatus
   `;
-  
+
         await window.ipcRenderer.invoke('execute-powershell-script', script);
+
+        // Minimize window after starting monitoring
+        await window.ipcRenderer.invoke('hide-window');
       } else {
         // Stop monitoring
         await window.ipcRenderer.invoke('stop-powershell-script');
@@ -266,10 +259,32 @@ Monitor-GameStatus
       }
     } catch (error) {
       console.error('Start/Stop monitoring error:', error);
-      // Revert running state in case of error
       setIsRunning(prevState => !prevState);
       alert(`Error: ${error instanceof Error ? error.message : String(error)}`);
     }
+  };
+
+  const handleToggleAutoLaunch = async (checked: boolean) => {
+    try {
+      // Send IPC to update auto-launch setting
+      await window.ipcRenderer.invoke('toggle-auto-launch', checked);
+
+      // Update local config
+      setConfig(prev => ({
+        ...prev,
+        autoLaunch: checked
+      }));
+    } catch (error) {
+      console.error('Error toggling auto-launch:', error);
+      alert(`Failed to update auto-launch: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const handleToggleAutoMonitor = (checked: boolean) => {
+    setConfig(prev => ({
+      ...prev,
+      autoMonitor: checked
+    }));
   };
 
 
@@ -277,11 +292,62 @@ Monitor-GameStatus
     window.ipcRenderer.invoke('open-external-link', url);
   };
 
+
+  // Render settings modal
+  const renderSettingsModal = () => {
+    if (!isSettingsOpen) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <Card className="w-80">
+          <CardHeader>
+            <CardTitle>Application Settings</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span>Launch at Startup</span>
+                <Switch
+                  checked={config.autoLaunch}
+                  onCheckedChange={handleToggleAutoLaunch}
+                />
+              </div>
+              <div className="flex items-center justify-between">
+                <span>Auto Start Monitoring</span>
+                <Switch
+                  checked={config.autoMonitor}
+                  onCheckedChange={handleToggleAutoMonitor}
+                />
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full mt-4"
+              onClick={() => setIsSettingsOpen(false)}
+            >
+              Close
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+
   return (
     <div className="p-4 max-w-md mx-auto">
       <Card>
-        <CardHeader>
-          <CardTitle>Wallpaper Engine Game Manager</CardTitle>
+        <CardHeader className="relative">
+          <CardTitle className="flex items-center justify-between">
+            <span>Wallpaper Engine Game Manager</span>
+            <button
+              onClick={() => setIsSettingsOpen(true)}
+              className="hover:bg-gray-100 rounded-full p-2 transition-colors"
+              aria-label="Open Settings"
+            >
+              <Settings className="h-5 w-5 text-gray-600 hover:text-gray-800" />
+            </button>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -376,6 +442,9 @@ Monitor-GameStatus
           <Twitter size={24} />
         </button>
       </div>
+
+      {/* Settings Modal */}
+      {renderSettingsModal()}
     </div>
   );
 }
