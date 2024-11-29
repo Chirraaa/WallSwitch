@@ -194,38 +194,38 @@ const App: React.FC = () => {
         setIsRunning(true);
   
         const script = `
-  # Wallpaper Engine Game Monitoring Script
-  $gamesToMonitor = @{
+# Wallpaper Engine Game Monitoring Script
+$gamesToMonitor = @{
     ${config.trackedGames.map(game => `'${game.name}' = '${game.path.split('\\').pop()}'`).join('\n  ')}
-  }
-  
-  $wallpaperEnginePath = "${config.wallpaperEnginePath}"
-  
-  function Close-WallpaperEngine {
-    Get-Process -Name "wallpaper64" -ErrorAction SilentlyContinue | ForEach-Object {
+}
+
+$wallpaperEnginePath = "${config.wallpaperEnginePath}"
+
+function Close-WallpaperEngine {
+    Get-Process -Name "wallpaper64", "wallpaper_w64", "wallpaper32" -ErrorAction SilentlyContinue | ForEach-Object {
         Stop-Process -Id $_.Id -Force
     }
-    Get-Process -Name "wallpaper_w64" -ErrorAction SilentlyContinue | ForEach-Object {
-        Stop-Process -Id $_.Id -Force
-    }
-  }
-  
-  function Test-GameRunning {
+}
+
+function Test-GameRunning {
     param([string]$GameExecutable)
-    return (Get-Process -Name ($GameExecutable -replace '\\.exe$') -ErrorAction SilentlyContinue) -ne $null
-  }
-  
-  function Monitor-GameStatus {
+    $processName = $GameExecutable -replace '\\.exe$', ''
+    return (Get-Process -Name $processName -ErrorAction SilentlyContinue) -ne $null
+}
+
+function Monitor-GameStatus {
     $wallpaperEngineRunning = $false
-  
+    $lastGameState = $false
+
     while ($true) {
         $gameRunning = $false
-  
+
         foreach ($game in $gamesToMonitor.GetEnumerator()) {
             if (Test-GameRunning -GameExecutable $game.Value) {
                 $gameRunning = $true
                 
-                if ($wallpaperEngineRunning -or (Get-Process -Name "wallpaper32" -ErrorAction SilentlyContinue)) {
+                if ($wallpaperEngineRunning) {
+                    Write-Host "Game detected. Closing Wallpaper Engine."
                     Close-WallpaperEngine
                     $wallpaperEngineRunning = $false
                     Start-Sleep -Seconds 2
@@ -233,19 +233,29 @@ const App: React.FC = () => {
                 break
             }
         }
-  
+
         if (-not $gameRunning -and -not $wallpaperEngineRunning) {
-            if (-not (Get-Process -Name "wallpaper32" -ErrorAction SilentlyContinue)) {
-                Start-Process "$wallpaperEnginePath"
-                $wallpaperEngineRunning = $true
-            }
+            Write-Host "No games running. Starting Wallpaper Engine."
+            Start-Process "$wallpaperEnginePath"
+            $wallpaperEngineRunning = $true
+            Start-Sleep -Seconds 5  # Give Wallpaper Engine time to start
         }
-  
+
+        # Use standard PowerShell if-else for logging state changes
+        if ($gameRunning -ne $lastGameState) {
+            if ($gameRunning) {
+                Write-Host "Game started"
+            } else {
+                Write-Host "No games running"
+            }
+            $lastGameState = $gameRunning
+        }
+
         Start-Sleep -Seconds 5
     }
-  }
-  
-  Monitor-GameStatus
+}
+
+Monitor-GameStatus
   `;
   
         await window.ipcRenderer.invoke('execute-powershell-script', script);
